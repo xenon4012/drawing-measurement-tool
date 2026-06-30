@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Image Measurement Tool</title>
+<style>
+  body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f0f0f0;
+  }
+  #toolbar {
+    padding: 10px;
+    background: #333;
+    color: white;
+  }
+  canvas {
+    display: block;
+    margin: 0 auto;
+    background: #ddd;
+    cursor: crosshair;
+  }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  Drag & drop an image. Draw to measure in cm. Right-click to clear.
+  <button id="uploadBtn" style="background-color: rgba(0, 255, 157, 0.781); border-radius: 15px;">Upload Image</button>
+  <input type="file" id="upload" accept="image/*" hidden />
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+const canvas = document.getElementById("canvas");
+
+canvas.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  lines = [];
+  redraw();
+});
+
+document.getElementById("uploadBtn").addEventListener("click", () => {
+  document.getElementById("upload").click();
+});
+
+const ctx = canvas.getContext("2d");
+
+// ====== SETTINGS ======
+// Change page size here if needed
+const PAGE_WIDTH_CM = 16.51;   // 6.5 inches
+const PAGE_HEIGHT_CM = 22.86;  // 9 inches
+// ======================
+
+let drawing = false;
+let startX = 0;
+let startY = 0;
+let lines = [];
+let image = null;
+
+// --- Drag & Drop ---
+canvas.addEventListener("dragover", (e) => e.preventDefault());
+
+canvas.addEventListener("drop", (e) => {
+  e.preventDefault();
+
+  const file = e.dataTransfer.files[0];
+  if (!file || !file.type.startsWith("image/")) return;
+
+  const img = new Image();
+  const reader = new FileReader();
+
+  reader.onload = function(event) {
+    img.onload = function() {
+      image = img;
+
+      canvas.width = img.width;
+      canvas.height = img.height;
+
+      lines = [];
+      redraw();
+    };
+    img.src = event.target.result;
+  };
+
+  reader.readAsDataURL(file);
+});
+
+document.getElementById("upload").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file || !file.type.startsWith("image/")) return;
+
+  const img = new Image();
+  const reader = new FileReader();
+
+  reader.onload = function(event) {
+    img.onload = function() {
+      image = img;
+
+      canvas.width = img.width;
+      canvas.height = img.height;
+
+      lines = [];
+      redraw();
+    };
+    img.src = event.target.result;
+  };
+
+  reader.readAsDataURL(file);
+});
+// --- Drawing ---
+
+// --- Right-click to clear ---
+canvas.addEventListener("click", (e) => {
+  if (!image) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+
+  // ---- choose best X reference (edge or center) ----
+  const xCandidates = [0, canvas.width, cx];
+  let bestX = xCandidates[0];
+  let bestXDist = Math.abs(x - bestX);
+
+  for (let i = 1; i < xCandidates.length; i++) {
+    const d = Math.abs(x - xCandidates[i]);
+    if (d < bestXDist) {
+      bestXDist = d;
+      bestX = xCandidates[i];
+    }
+  }
+
+  // ---- choose best Y reference (edge or center) ----
+  const yCandidates = [0, canvas.height, cy];
+  let bestY = yCandidates[0];
+  let bestYDist = Math.abs(y - bestY);
+
+  for (let i = 1; i < yCandidates.length; i++) {
+    const d = Math.abs(y - yCandidates[i]);
+    if (d < bestYDist) {
+      bestYDist = d;
+      bestY = yCandidates[i];
+    }
+  }
+
+  // ---- draw measurements ----
+
+  // X measurement
+
+  lines.push({
+    x1: x, y1: y,
+    x2: bestX, y2: y,
+    type: "x"
+  });
+
+  // Y measurement
+  lines.push({
+    x1: x, y1: y,
+    x2: x, y2: bestY,
+    type: "y"
+  });
+
+  redraw();
+});
+
+// --- Drawing helpers ---
+function drawLine(x1, y1, x2, y2, preview = false, line = {}) {
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.strokeStyle = preview ? "red" : "black";
+  ctx.lineWidth = preview ? 3 : 2;
+  ctx.stroke();
+
+  // ❗ Skip label while drawing (preview mode)
+  if (preview) return;
+
+  // Pixel length
+  const pixelLength = Math.abs(x2 - x1) + Math.abs(y2 - y1);
+
+  // Convert to cm
+  const cmPerPixelX = PAGE_WIDTH_CM / canvas.width;
+  const cmPerPixelY = PAGE_HEIGHT_CM / canvas.height;
+
+  let lengthCM = (x1 === x2)
+    ? pixelLength * cmPerPixelY
+    : pixelLength * cmPerPixelX;
+
+  const text = `${lengthCM.toFixed(2)} cm`;
+  ctx.font = "16px Arial";
+
+  const textWidth = ctx.measureText(text).width;
+  const textHeight = 16;
+
+  let textX = (x1 + x2) / 2;
+  let textY = (y1 + y2) / 2 - 5;
+
+  // Clamp inside canvas
+  const padding = 6;
+
+  if (textX - textWidth / 2 < padding) {
+    textX = textWidth / 2 + padding;
+  }
+  if (textX + textWidth / 2 > canvas.width - padding) {
+    textX = canvas.width - textWidth / 2 - padding;
+  }
+  if (textY - textHeight < padding) {
+    textY = textHeight + padding;
+  }
+  if (textY > canvas.height - padding) {
+    textY = canvas.height - padding;
+  }
+
+  // Background box
+  ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+  ctx.fillRect(
+    textX - textWidth / 2 - 4,
+    textY - textHeight + 4,
+    textWidth + 8,
+    textHeight + 4
+  );
+
+  // Text
+  if (line.type === "x") {
+  ctx.fillStyle = "#007bff"; // blue for X
+  } else if (line.type === "y") {
+    ctx.fillStyle = "#28a745"; // green for Y
+  } else {
+    ctx.fillStyle = "black";
+  }
+
+  ctx.fillText(text, textX - textWidth / 2, textY);
+}
+
+function redraw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (image) {
+    ctx.drawImage(image, 0, 0);
+  }
+
+  for (let line of lines) {
+    drawLine(line.x1, line.y1, line.x2, line.y2, false, line);
+  }
+}
+</script>
+
+</body>
+</html>
