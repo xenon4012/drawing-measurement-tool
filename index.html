@@ -59,55 +59,50 @@ let startY = 0;
 let lines = [];
 let image = null;
 
+function loadImageFromFile(file) {
+  if (!file || !file.type.startsWith("image/")) return;
+
+  const img = new Image();
+  const reader = new FileReader();
+
+  reader.onload = function(event) {
+    img.onload = function() {
+      image = img;
+
+      canvas.width = img.width;
+      canvas.height = img.height;
+
+      lines = [];
+      redraw();
+    };
+    img.src = event.target.result;
+  };
+
+  reader.readAsDataURL(file);
+}
+
 // --- Drag & Drop ---
 canvas.addEventListener("dragover", (e) => e.preventDefault());
 
 canvas.addEventListener("drop", (e) => {
   e.preventDefault();
-
-  const file = e.dataTransfer.files[0];
-  if (!file || !file.type.startsWith("image/")) return;
-
-  const img = new Image();
-  const reader = new FileReader();
-
-  reader.onload = function(event) {
-    img.onload = function() {
-      image = img;
-
-      canvas.width = img.width;
-      canvas.height = img.height;
-
-      lines = [];
-      redraw();
-    };
-    img.src = event.target.result;
-  };
-
-  reader.readAsDataURL(file);
+  loadImageFromFile(e.dataTransfer.files[0]);
 });
 
 document.getElementById("upload").addEventListener("change", (e) => {
-  const file = e.target.files[0];
-  if (!file || !file.type.startsWith("image/")) return;
+  loadImageFromFile(e.target.files[0]);
+});
 
-  const img = new Image();
-  const reader = new FileReader();
+document.addEventListener("paste", (e) => {
+  const items = e.clipboardData.items;
 
-  reader.onload = function(event) {
-    img.onload = function() {
-      image = img;
-
-      canvas.width = img.width;
-      canvas.height = img.height;
-
-      lines = [];
-      redraw();
-    };
-    img.src = event.target.result;
-  };
-
-  reader.readAsDataURL(file);
+  for (const item of items) {
+    if (item.type.startsWith("image/")) {
+      const file = item.getAsFile();
+      loadImageFromFile(file);
+      break;
+    }
+  }
 });
 // --- Drawing ---
 
@@ -198,7 +193,16 @@ function drawLine(x1, y1, x2, y2, preview = false, line = {}) {
   const textHeight = 16;
 
   let textX = (x1 + x2) / 2;
-  let textY = (y1 + y2) / 2 - 5;
+  let textY = (y1 + y2) / 2;
+
+  // Offset labels so X and Y don't overlap
+  if (line.type === "x") {
+    textY -= 14;   // place above horizontal line
+  }
+
+  if (line.type === "y") {
+    textX += 24;   // place to the right of vertical line
+  }
 
   // Clamp inside canvas
   const padding = 6;
